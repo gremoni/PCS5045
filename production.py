@@ -11,18 +11,20 @@ from spade.agent import Agent
 XMPP_SERVER = "localhost"
 PUBSUB_JID = "pubsub.localhost"
 
-TRUCK_PUBSUB = "truck"
+SCALE_PUBSUB = "scale"
 
 class OperationAgent(Agent):
-    def __init__(self, jid: str, password: str, operating_cost, verify_security: bool = False):
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
         super().__init__(jid, password, verify_security)
         self.operating_cost = operating_cost
+        self.capacity = capacity
+        self.duration = duration
         self.start_time = datetime.now()
 
 
 class TransportAgent(ArtifactMixin, OperationAgent):
-    def __init__(self, *args, artifact_jid: str = None, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, artifact_jid, pubsub_server=None, **kwargs):
+        super().__init__(*args, pubsub_server=pubsub_server, **kwargs)
         self.artifact_jid = artifact_jid
 
     def truck_callback(self, artifact, payload):
@@ -55,10 +57,9 @@ class PackingAgent(ArtifactMixin, OperationAgent):
 class BoxingAgent(OperationAgent):
     
     
-class InspectionAgent(OperationAgent):
-    def __init__(self, jid: str, password: str, operating_cost, scale_node: str = None, verify_security: bool = False):
+class InspectionAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, verify_security: bool = False):
         super().__init__(jid, password, operating_cost, verify_security)
-        self.scale_node = scale_node
 
     class WriteToScaleBehav(OneShotBehaviour):
         async def on_start(self):
@@ -66,12 +67,12 @@ class InspectionAgent(OperationAgent):
 
         async def run(self):
             amount = 100
-            await self.agent.pubsub.publish(PUBSUB_JID, self.agent.scale_node, amount)
+            await self.agent.pubsub.publish(PUBSUB_JID, SCALE_PUBSUB, amount)
 
 
     async def setup(self):
-        if self.scale_node != None:
-            await self.agent.pubsub.subscribe(PUBSUB_JID, self.scale_node)
+        await self.pubsub.subscribe(PUBSUB_JID, SCALE_PUBSUB)
+
 
 class ManagerAgent(PubSubMixin, Agent):
     def __init__(self, jid: str, password: str, verify_security: bool = False):
@@ -79,10 +80,9 @@ class ManagerAgent(PubSubMixin, Agent):
 
     
     async def setup(self):
+        await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
+
         
-
-
-
 
 
 class TruckArtifact(Artifact):
