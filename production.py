@@ -5,9 +5,13 @@ import random
 
 from datetime import datetime
 from spade_artifact import Artifact, ArtifactMixin
+from spade_pubsub import PubSubMixin
 from spade.agent import Agent
 
+XMPP_SERVER = "localhost"
 PUBSUB_JID = "pubsub.localhost"
+
+TRUCK_PUBSUB = "truck"
 
 class OperationAgent(Agent):
     def __init__(self, jid: str, password: str, operating_cost, verify_security: bool = False):
@@ -68,6 +72,15 @@ class InspectionAgent(OperationAgent):
     async def setup(self):
         if self.scale_node != None:
             await self.agent.pubsub.subscribe(PUBSUB_JID, self.scale_node)
+
+class ManagerAgent(PubSubMixin, Agent):
+    def __init__(self, jid: str, password: str, verify_security: bool = False):
+        super().__init__(jid, password, verify_security)
+
+    
+    async def setup(self):
+        
+
 
 
 
@@ -152,8 +165,25 @@ class ScaleArtifact(Artifact):
 
 
 async def main():
-    
+    truck_artifact_user = ""
+    transport_agent_user = ""
+    password = "senha"
 
+    transport_agent = TransportAgent(
+        jid = f"{transport_agent}@{XMPP_SERVER}", 
+        password = password, 
+        artifact_jid = f"{truck_artifact}@{XMPP_SERVER}"
+    )
+    transport_agent.start()
+
+    truck_artifact = TruckArtifact(
+        jid = f"{truck_artifact}@{XMPP_SERVER}", 
+        password = password)
+
+    future = truck_artifact.start()
+    future.result()
+
+    truck_artifact.join()
 
 if __name__ == "__main__":
-        spade.run(main())
+    spade.run(main())
