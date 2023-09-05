@@ -54,158 +54,95 @@ class TransportAgent(ArtifactMixin, OperationAgent):
         transport_behav = self.TransportBehav()
         self.add_behaviour(transport_behav)
 
+
+class InspectionAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
+        super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
+
+    class WriteToScaleBehav(OneShotBehaviour):
+        async def run(self):
+            amount = 100
+            try:
+                await self.agent.pubsub.publish(PUBSUB_JID, SCALE_PUBSUB, str(amount))
+            except Exception:
+                print("erro")
+
+            print("published")
+
+    async def setup(self):
+        # list_of_nodes = await self.pubsub.get_nodes(PUBSUB_JID)
+        # print(f"[{self.name}] List of nodes: {list_of_nodes}")
+        behav = self.WriteToScaleBehav()
+        self.add_behaviour(behav)
+
+
+
+class PackingAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
+        super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
+
+
+    def scale_callback(self, jid, node, item, message=None):
+        print(f"[{self.name}] Received: [{node}] -> {item.registered_payload.data}")
+
+    async def setup(self):
+        self.presence.approve_all = True
+        self.presence.set_available()
+        await self.pubsub.subscribe(PUBSUB_JID, SCALE_PUBSUB)
+        self.pubsub.set_on_item_published(self.scale_callback)
+
+
+class ManagerAgent(PubSubMixin, Agent):
+    def __init__(self, jid: str, password: str, verify_security: bool = False):
+        super().__init__(jid, password, verify_security)
+    
+    class DummyBehav(CyclicBehaviour):
+        async def run(self):
+            print(f"[{self.agent.name}] Running")
+            await asyncio.sleep(2)
+    
+    async def setup(self):
+        try:
+            await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
+        except:
+            print("Node already exists")
+
+
+
 # class ProductionAgent(OperationAgent):
-
-
-
-# class PackingAgent(ArtifactMixin, OperationAgent):
-#     def __init__(self, *args, artifact_jid: str = None, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.artifact_jid = artifact_jid
-
-#     def scale_callback(self, artifact, payload):
-#         print(f"Received: [{artifact}] -> {payload}")
-
-#     async def setup(self):
-#         self.presence.approve_all = True
-#         self.presence.subscribe(self.artifact_jid)
-#         self.presence.set_available()
-#         await self.artifacts.focus(self.artifact_jid, self.scale_callback)
-
 
 # class BoxingAgent(OperationAgent):
 
 
-# class InspectionAgent(PubSubMixin, OperationAgent):
-#     def __init__(self, jid: str, password: str, operating_cost, verify_security: bool = False):
-#         super().__init__(jid, password, operating_cost, verify_security)
-
-#     class WriteToScaleBehav(OneShotBehaviour):
-#         async def on_start(self):
-
-
-#         async def run(self):
-#             amount = 100
-#             await self.agent.pubsub.publish(PUBSUB_JID, SCALE_PUBSUB, amount)
-
-
-#     async def setup(self):
-#         await self.pubsub.subscribe(PUBSUB_JID, SCALE_PUBSUB)
-
-
-# class ManagerAgent(PubSubMixin, Agent):
-#     def __init__(self, jid: str, password: str, verify_security: bool = False):
-#         super().__init__(jid, password, verify_security)
-
-
-#     async def setup(self):
-#         await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
-
-
-
-
-class TruckArtifact(Artifact):
-    def on_available(self, jid, stanza):
-        print(
-            "[{}] Agent {} is available.".format(self.name, jid.split("@")[0])
-        )
-
-    def on_subscribed(self, jid):
-        print(
-            "[{}] Agent {} has accepted the subscription.".format(
-                self.name, jid.split("@")[0]
-            )
-        )
-        print(
-            "[{}] Contacts List: {}".format(self.name, self.presence.get_contacts())
-        )
-
-    def on_subscribe(self, jid):
-        print(
-            "[{}] Agent {} asked for subscription. Let's aprove it.".format(
-                self.name, jid.split("@")[0]
-            )
-        )
-        self.presence.approve(jid)
-        self.presence.subscribe(jid)
-
-    async def setup(self):
-        # Approve all contact requests
-        self.presence.set_available()
-        self.presence.on_subscribe = self.on_subscribe
-        self.presence.on_subscribed = self.on_subscribed
-        self.presence.on_available = self.on_available
-
-    async def run(self):
-
-        while True:
-            if len(self.presence.get_contacts()) >= 1:
-                random_num = random.randint(0, 100)
-                await self.publish(f"{random_num}")
-                print(f"Publishing {random_num}")
-            await asyncio.sleep(30)
-
-
-
-# class ScaleArtifact(Artifact):
-#     def on_available(self, jid, stanza):
-#        print(
-#             "[{}] Agent {} is available.".format(self.name, jid.split("@")[0])
-#         )
-
-#     def on_subscribed(self, jid):
-#        print(
-#             "[{}] Agent {} has accepted the subscription.".format(
-#                 self.name, jid.split("@")[0]
-#             )
-#         )
-#        print(
-#             "[{}] Contacts List: {}".format(self.name, self.presence.get_contacts())
-#         )
-
-#     def on_subscribe(self, jid):
-#        print(
-#             "[{}] Agent {} asked for subscription. Let's aprove it.".format(
-#                 self.name, jid.split("@")[0]
-#             )
-#         )
-#         self.presence.approve(jid)
-#         self.presence.subscribe(jid)
-
-#     async def setup(self):
-#         # Approve all contact requests
-#         self.presence.set_available()
-#         self.presence.on_subscribe = self.on_subscribe
-#         self.presence.on_subscribed = self.on_subscribed
-#         self.presence.on_available = self.on_available
-
-#     async def run(self):
-
-
 async def main():
-    truck_artifact_user = "agente1"
-    transport_agent_user = "agente2"
+    inspection_agent_user = "agente1"
+    manager_agent_user = "agente2"
+    packing_agent_user = "agente3"
     password = "senhadoagente"
 
-    truck_artifact = TruckArtifact(
-        jid = f"{truck_artifact_user}@{XMPP_SERVER}",
-        password = password
+    manager_agent = ManagerAgent(
+        jid = f"{manager_agent_user}@{XMPP_SERVER}",
+        password = password,
     )
+    await manager_agent.start()
 
-    future = truck_artifact.start()
-    future.result()
-
-    truck_artifact.join()
-
-    transport_agent = TransportAgent(
-        jid = f"{transport_agent_user}@{XMPP_SERVER}",
+    inspection_agent = InspectionAgent(
+        jid = f"{inspection_agent_user}@{XMPP_SERVER}",
         password = password,
         capacity= 10,
         duration= 10,
         operating_cost= 10,
-        artifact_jid = f"{truck_artifact_user}@{XMPP_SERVER}"
     )
-    await transport_agent.start()
+    await inspection_agent.start()
+
+    packing_agent = PackingAgent(
+        jid = f"{packing_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 10,
+        duration= 10,
+        operating_cost= 10,
+    )
+    await packing_agent.start()
 
 
 
