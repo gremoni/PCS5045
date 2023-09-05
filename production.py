@@ -25,25 +25,15 @@ class OperationAgent(Agent):
 
 class TransportAgent(ArtifactMixin, OperationAgent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, artifact_jid, pubsub_server=None, *args, **kwargs):
-        print("Init")
-        # OperationAgent.__init__(self=self,
-        #                         jid=jid,
-        #                         password= password,
-        #                         operating_cost= operating_cost,
-        #                         capacity= capacity,
-        #                         duration= duration)
-        print("Init")
-
-        ArtifactMixin.__init__(self=self,
-                                jid=jid,
-                                password= password,
-                                operating_cost= operating_cost,
-                                capacity= capacity,
-                                duration= duration, pubsub_server=pubsub_server, *args, **kwargs)
+        super.__init__(self=self,
+                        jid=jid,
+                        password= password,
+                        operating_cost= operating_cost,
+                        capacity= capacity,
+                        duration= duration, pubsub_server=pubsub_server, *args, **kwargs)
 
 
         self.artifact_jid = artifact_jid
-        print("Init")
 
 
     def truck_callback(self, artifact, payload):
@@ -197,6 +187,16 @@ async def main():
     transport_agent_user = "agente2"
     password = "senhadoagente"
 
+    truck_artifact = TruckArtifact(
+        jid = f"{truck_artifact_user}@{XMPP_SERVER}",
+        password = password
+    )
+
+    future = truck_artifact.start()
+    future.result()
+
+    truck_artifact.join()
+
     transport_agent = TransportAgent(
         jid = f"{transport_agent_user}@{XMPP_SERVER}",
         password = password,
@@ -207,14 +207,7 @@ async def main():
     )
     await transport_agent.start()
 
-    truck_artifact = TruckArtifact(
-        jid = f"{truck_artifact_user}@{XMPP_SERVER}",
-        password = password)
 
-    future = truck_artifact.start()
-    future.result()
-
-    truck_artifact.join()
 
 if __name__ == "__main__":
     spade.run(main())
