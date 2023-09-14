@@ -15,6 +15,7 @@ PUBSUB_JID = f"pubsub.{XMPP_SERVER}"
 
 SCALE_PUBSUB = "scale"
 STOCK_PUBSUB = "stock"
+CONVEYOR_BELT_PUBSUB = "conveyor_belt"
 
 class OperationAgent(Agent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
@@ -114,17 +115,68 @@ class ManagerAgent(PubSubMixin, Agent):
             await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
         except:
             print("Node already exists")
+        try:
+            await self.pubsub.create(PUBSUB_JID, STOCK_PUBSUB)
+        except:
+            print("Node already exists")
+        try:
+            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_PUBSUB)
+        except:
+            print("Node already exists")
 
 
 
-# class ProductionAgent(OperationAgent):
+class ProductionAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, activity : str, receive_pubsub, deliver_pubsub, verify_security: bool = False):
+        self.activity = activity
+        self.receive_pubsub = receive_pubsub
+        self.deliver_pubsub = deliver_pubsub
+        self.stock = 0
+        super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
+    
+    def receive_callback(self, jid, node, item, message=None):
+        received_amount = int(item.registered_payload.data)
+        print(f"[{self.name}] Received: [{node}] -> {str(received_amount)}")
+        self.stock += received_amount
+    
+    class ProcessStockBehav(CyclicBehaviour):
+        def __init__(self, pubsub : PubSubMixin.PubSubComponent):
+            self.pubsub = pubsub
+            super().__init__()
+
+        async def on_start(self):
+           print(f"[{self.agent.name}] Starting Process {self.agent.activity} Behav")
+
+        async def run(self):
+            processed = 0
+            if self.agent.stock > 0:
+                if self.agent.stock > self.agent.capacity:
+                    processed = self.agent.capacity
+                    self.agent.stock -= self.agent.capacity
+                else:
+                    processed = self.agent.stock
+                    self.agent.stock = 0
+                await asyncio.sleep(self.agent.duration)
+                #await self.pubsub.publish(PUBSUB_JID, self.agent.deliver_pubsub, str(processed))
+                print(f"[{self.agent.name}] {self.agent.activity} Processed  {processed}")
+                print(f"[{self.agent.name}] {self.agent.activity} Stock  {self.agent.stock}")
+            else:
+                await asyncio.sleep(5)
+    
+    async def setup(self):
+        self.presence.approve_all = True
+        self.presence.set_available()
+        await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
+        await self.pubsub.subscribe(PUBSUB_JID, self.deliver_pubsub)
+        self.pubsub.set_on_item_published(self.receive_callback)
+        self.add_behaviour(self.ProcessStockBehav(self.pubsub))
 
 # class BoxingAgent(OperationAgent):
 
 
 async def main():
-    inspection_agent_user = "agente1"
-    manager_agent_user = "agente2"
+    manager_agent_user = "agente1"
+    slicing_agent_user = "agente2"
     packing_agent_user = "agente3"
     password = "senhadoagente"
 
@@ -138,9 +190,21 @@ async def main():
         jid = f"{packing_agent_user}@{XMPP_SERVER}",
         password = password,
         operating_cost = 10,
-        deliver_period = 10
+        deliver_period = 100
     )
     await truck_agent.start()
+
+    inspection_agent = ProductionAgent(
+        jid = f"{slicing_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 150,
+        duration= 5,
+        operating_cost= 12,
+        activity= "SLICING",
+        receive_pubsub= STOCK_PUBSUB,
+        deliver_pubsub= CONVEYOR_BELT_PUBSUB
+    )
+    await inspection_agent.start()
 
     # inspection_agent = InspectionAgent(
     #     jid = f"{inspection_agent_user}@{XMPP_SERVER}",
