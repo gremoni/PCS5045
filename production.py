@@ -17,10 +17,11 @@ from aioxmpp import JID, forms
 XMPP_SERVER = "nave"
 PUBSUB_JID = f"pubsub.{XMPP_SERVER}"
 
-SCALE_PUBSUB = "scale"
 STOCK_PUBSUB = "stock"
 CONVEYOR_BELT_1_PUBSUB = "conveyor_belt_1"
 CONVEYOR_BELT_2_PUBSUB = "conveyor_belt_2"
+SCALE_PUBSUB = "scale"
+
 
 class OperationAgent(Agent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, verify_security: bool = False):
@@ -132,6 +133,90 @@ class ProductionAgent(PubSubMixin, OperationAgent):
         self.add_behaviour(self.ProcessStockBehav(self.pubsub))
 
 
+class QualityControlAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, activity : str, receive_pubsub, deliver_pubsub, return_pubsub, verify_security: bool = False):
+        self.activity = activity
+        self.receive_pubsub = receive_pubsub
+        self.deliver_pubsub = deliver_pubsub
+        self.return_pubsub = return_pubsub
+        self.stock = 0
+        super().__init__(jid, password, operating_cost, capacity, duration, manager_user, verify_security)
+    
+    def receive_callback(self, jid, node, item, message=None):
+        if node == self.receive_pubsub:
+            received_amount = int(item.registered_payload.data)
+            print(f"[{self.name}] Received: [{node}] -> {str(received_amount)}")
+            self.stock += received_amount
+    
+    class SetPublishAffiliationBehav(OneShotBehaviour):
+        async def run(self):
+            msg = Message(to=f"{self.agent.manager_user}@{XMPP_SERVER}")
+            msg.set_metadata("performative", "request")
+            msg.set_metadata("action", "affiliation_publish")
+            msg.body = self.agent.deliver_pubsub
+            await self.send(msg)
+            
+            msg2 = Message(to=f"{self.agent.manager_user}@{XMPP_SERVER}")
+            msg2.set_metadata("performative", "request")
+            msg2.set_metadata("action", "affiliation_publish")
+            msg2.body = self.agent.return_pubsub
+            await self.send(msg2)
+
+    class QualityControlBehav(CyclicBehaviour):
+        def __init__(self, pubsub : PubSubMixin.PubSubComponent):
+            self.pubsub = pubsub
+            super().__init__()
+
+        async def on_start(self):
+           print(f"[{self.agent.name}] Starting Process {self.agent.activity} Behav")
+
+        def quality_analysis(self):
+            value = random.randint(0, 9)
+            if value == 0:
+                return None
+            elif value == 1:
+                return self.agent.return_pubsub
+            else:
+                return self.agent.deliver_pubsub
+
+        async def run(self):
+            processed = 0
+            if self.agent.stock > 0:
+                if self.agent.stock > self.agent.capacity:
+                    processed = self.agent.capacity
+                    self.agent.stock -= self.agent.capacity
+                else:
+                    processed = self.agent.stock
+                    self.agent.stock = 0
+
+                await asyncio.sleep(self.agent.duration)
+
+                print(f"[{self.agent.name}] {self.agent.activity} Processed  {processed}")
+                analysis_result = self.quality_analysis()
+                if analysis_result is None:
+                    print(f"[{self.agent.name}] Quality analysis defective. Dropping product.")
+                elif analysis_result == self.agent.return_pubsub:
+                    print(f"[{self.agent.name}] Quality analysis not ready. Returning product.")
+                    await self.pubsub.publish(PUBSUB_JID, self.agent.return_pubsub, str(processed))
+                elif analysis_result == self.agent.deliver_pubsub:
+                    print(f"[{self.agent.name}] Quality analysis passed. Delivering product.")
+                    await self.pubsub.publish(PUBSUB_JID, self.agent.deliver_pubsub, str(processed))
+                else:
+                    print(f"[{self.agent.name}] Quality analysis failed!!!!!")
+
+                print(f"[{self.agent.name}] {self.agent.activity} Stock  {self.agent.stock}")
+            else:
+                await asyncio.sleep(5)
+    
+    async def setup(self):
+        self.presence.approve_all = True
+        self.presence.set_available()
+        await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
+        self.add_behaviour(self.SetPublishAffiliationBehav())
+        self.pubsub.set_on_item_published(self.receive_callback)
+        self.add_behaviour(self.QualityControlBehav(self.pubsub))
+
+
 class InspectionAgent(PubSubMixin, OperationAgent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
         super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
@@ -185,10 +270,6 @@ class ManagerAgent(PubSubMixin, Agent):
     
     async def setup(self):
         try:
-            await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
-        except:
-            print(f"[{self.name}] Node {SCALE_PUBSUB} already exists")
-        try:
             await self.pubsub.create(PUBSUB_JID, STOCK_PUBSUB)
         except:
             print(f"[{self.name}] Node {STOCK_PUBSUB} already exists")
@@ -200,6 +281,10 @@ class ManagerAgent(PubSubMixin, Agent):
             await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_2_PUBSUB)
         except:
             print(f"[{self.name}] Node {CONVEYOR_BELT_2_PUBSUB} already exists")
+        try:
+            await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
+        except:
+            print(f"[{self.name}] Node {SCALE_PUBSUB} already exists")
         
         change_affiliation_template = Template()
         change_affiliation_template.set_metadata("performative", "request")
@@ -216,6 +301,7 @@ async def main():
     truck_agent_user = "agente2"
     slicer_agent_user = "agente3"
     fryer_agent_user = "agente4"
+    quality_agent_user = "agente5"
     password = "senhadoagente"
 
     manager_agent = ManagerAgent(
@@ -259,6 +345,20 @@ async def main():
     )
     await fryer_agent.start()
 
+    quality_agent = QualityControlAgent(
+        jid = f"{quality_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 100,
+        duration= 5,
+        operating_cost= 17,
+        manager_user= manager_agent_user,
+        activity= "QUALITY",
+        receive_pubsub= CONVEYOR_BELT_2_PUBSUB,
+        deliver_pubsub= SCALE_PUBSUB,
+        return_pubsub= CONVEYOR_BELT_1_PUBSUB
+    )
+    await quality_agent.start()
+
     # inspection_agent = InspectionAgent(
     #     jid = f"{inspection_agent_user}@{XMPP_SERVER}",
     #     password = password,
@@ -281,6 +381,7 @@ async def main():
     await truck_agent.stop()
     await slicer_agent.stop()
     await fryer_agent.stop()
+    await quality_agent.stop()
 
 if __name__ == "__main__":
     spade.run(main())
