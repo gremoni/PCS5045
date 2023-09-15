@@ -21,6 +21,7 @@ PUBSUB_JID = f"pubsub.{XMPP_SERVER}"
 STOCK_PUBSUB = "stock"
 CONVEYOR_BELT_1_PUBSUB = "conveyor_belt_1"
 CONVEYOR_BELT_2_PUBSUB = "conveyor_belt_2"
+CONVEYOR_BELT_3_PUBSUB = "conveyor_belt_3"
 SCALE_PUBSUB = "scale"
 
 
@@ -221,18 +222,66 @@ class QualityControlAgent(PubSubMixin, OperationAgent):
 
 
 class FillingAgent(PubSubMixin, OperationAgent):
-    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
-        super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
+    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, activity : str, batch_size, receive_pubsub, deliver_pubsub, verify_security: bool = False):
+        self.activity = activity
+        if capacity % batch_size != 0:
+            raise ValueError("capacity must be multiple of batch_size")
+        self.batch_size = batch_size
+        self.receive_pubsub = receive_pubsub
+        self.deliver_pubsub = deliver_pubsub
+        self.stock = 0
+        super().__init__(jid, password, operating_cost, capacity, duration, manager_user, verify_security)
 
 
-    def scale_callback(self, jid, node, item, message=None):
-        print(f"[{self.name}] Received: [{node}] -> {item.registered_payload.data}")
+    def receive_callback(self, jid, node, item, message=None):
+        if node == self.receive_pubsub:
+            received_amount = int(item.registered_payload.data)
+            print(f"[{self.name}] Received: [{node}] -> {str(received_amount)}")
+            self.stock += received_amount
+    
+    class FillWithStockBehav(CyclicBehaviour):
+        def __init__(self, pubsub : PubSubMixin.PubSubComponent):
+            self.pubsub = pubsub
+            super().__init__()
+
+        async def on_start(self):
+           print(f"[{self.agent.name}] Starting Process {self.agent.activity} Behav")
+
+        async def run(self):
+            processed = 0
+            if self.agent.stock > 0:
+                if self.agent.stock > self.agent.capacity:
+                    processed = self.agent.capacity
+                    self.agent.stock -= self.agent.capacity
+                elif self.agent.stock > self.agent.batch_size:
+                    processed = int(self.agent.stock / self.agent.batch_size)
+                    self.agent.stock = self.agent.stock % self.agent.batch_size
+                
+                await asyncio.sleep(self.agent.duration)
+                await self.pubsub.publish(PUBSUB_JID, self.agent.deliver_pubsub, str(processed))
+                print(f"[{self.agent.name}] {self.agent.activity} Processed  {processed}")
+                print(f"[{self.agent.name}] {self.agent.activity} Stock  {self.agent.stock}")
+            else:
+                await asyncio.sleep(5)
+
+        
+    class SetPublishAffiliationBehav(OneShotBehaviour):
+        async def run(self):
+            msg = Message(to=f"{self.agent.manager_user}@{XMPP_SERVER}")
+            msg.set_metadata("performative", "request")
+            msg.set_metadata("action", "affiliation_publish")
+            msg.body = self.agent.deliver_pubsub
+            await self.send(msg)
+
 
     async def setup(self):
         self.presence.approve_all = True
         self.presence.set_available()
-        await self.pubsub.subscribe(PUBSUB_JID, SCALE_PUBSUB)
-        self.pubsub.set_on_item_published(self.scale_callback)
+        await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
+        self.affiliation_behav = self.SetPublishAffiliationBehav()
+        self.add_behaviour(self.affiliation_behav)
+        self.pubsub.set_on_item_published(self.receive_callback)
+        self.add_behaviour(self.FillWithStockBehav(self.pubsub))
 
 
 class ManagerAgent(PubSubMixin, Agent):
@@ -271,12 +320,13 @@ async def main():
     slicer_agent_user = "agente3"
     fryer_agent_user = "agente4"
     quality_agent_user = "agente5"
+    packing_agent_user = "agente6"
     password = "senhadoagente"
 
     manager_agent = ManagerAgent(
         jid = f"{manager_agent_user}@{XMPP_SERVER}",
         password = password,
-        nodelist= [STOCK_PUBSUB, CONVEYOR_BELT_1_PUBSUB, CONVEYOR_BELT_2_PUBSUB, SCALE_PUBSUB]
+        nodelist= [STOCK_PUBSUB, CONVEYOR_BELT_1_PUBSUB, CONVEYOR_BELT_2_PUBSUB, SCALE_PUBSUB, CONVEYOR_BELT_3_PUBSUB]
     )
     await manager_agent.start()
 
@@ -329,16 +379,19 @@ async def main():
     )
     await quality_agent.start()
 
-    # inspection_agent = InspectionAgent(
-    #     jid = f"{inspection_agent_user}@{XMPP_SERVER}",
-    #     password = password,
-    #     capacity= 10,
-    #     duration= 10,
-    #     operating_cost= 10,
-    # )
-    # await inspection_agent.start()
-
-
+    packing_agent = FillingAgent(
+        jid = f"{packing_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 200,
+        batch_size=50,
+        duration= 8,
+        operating_cost= 21,
+        manager_user= manager_agent_user,
+        activity= "PACKING",
+        receive_pubsub= SCALE_PUBSUB,
+        deliver_pubsub= CONVEYOR_BELT_3_PUBSUB
+    )
+    await packing_agent.start()
 
     while True:
         try:
