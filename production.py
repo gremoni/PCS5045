@@ -4,6 +4,7 @@ import spade
 import json
 import random
 
+from typing import List
 from datetime import datetime, timedelta
 from spade_artifact import Artifact, ArtifactMixin
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour, PeriodicBehaviour, TimeoutBehaviour, FSMBehaviour, State
@@ -71,7 +72,8 @@ class TruckAgent(PubSubMixin, Agent):
             await asyncio.sleep(random_delay_time)
 
     async def setup(self):
-        self.add_behaviour(self.SetPublishAffiliationBehav())
+        self.affiliation_behav = self.SetPublishAffiliationBehav()
+        self.add_behaviour(self.affiliation_behav)
         start_at = datetime.now() + timedelta(seconds=self.start_delay)
         deliver_behav = self.TruckDeliverBehav(period = self.deliver_period,
                                                start_at = start_at,
@@ -128,7 +130,8 @@ class ProductionAgent(PubSubMixin, OperationAgent):
         self.presence.approve_all = True
         self.presence.set_available()
         await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
-        self.add_behaviour(self.SetPublishAffiliationBehav())
+        self.affiliation_behav = self.SetPublishAffiliationBehav()
+        self.add_behaviour(self.affiliation_behav)
         self.pubsub.set_on_item_published(self.receive_callback)
         self.add_behaviour(self.ProcessStockBehav(self.pubsub))
 
@@ -255,7 +258,8 @@ class PackingAgent(PubSubMixin, OperationAgent):
 
 
 class ManagerAgent(PubSubMixin, Agent):
-    def __init__(self, jid: str, password: str, verify_security: bool = False):
+    def __init__(self, jid: str, password: str, nodelist : List[str], verify_security: bool = False):
+        self.nodelist = nodelist
         super().__init__(jid, password, verify_security)
     
     class ChangeAffiliationPublishBehav(CyclicBehaviour):
@@ -269,22 +273,12 @@ class ManagerAgent(PubSubMixin, Agent):
 
     
     async def setup(self):
-        try:
-            await self.pubsub.create(PUBSUB_JID, STOCK_PUBSUB)
-        except:
-            print(f"[{self.name}] Node {STOCK_PUBSUB} already exists")
-        try:
-            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_1_PUBSUB)
-        except:
-            print(f"[{self.name}] Node {CONVEYOR_BELT_1_PUBSUB} already exists")
-        try:
-            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_2_PUBSUB)
-        except:
-            print(f"[{self.name}] Node {CONVEYOR_BELT_2_PUBSUB} already exists")
-        try:
-            await self.pubsub.create(PUBSUB_JID, SCALE_PUBSUB)
-        except:
-            print(f"[{self.name}] Node {SCALE_PUBSUB} already exists")
+        for node in self.nodelist:
+            try:
+                await self.pubsub.create(PUBSUB_JID, node)
+                print(f"[{self.name}] Created node {node}")
+            except:
+                print(f"[{self.name}] Node {node} already exists")
         
         change_affiliation_template = Template()
         change_affiliation_template.set_metadata("performative", "request")
@@ -307,6 +301,7 @@ async def main():
     manager_agent = ManagerAgent(
         jid = f"{manager_agent_user}@{XMPP_SERVER}",
         password = password,
+        nodelist= [STOCK_PUBSUB, CONVEYOR_BELT_1_PUBSUB, CONVEYOR_BELT_2_PUBSUB, SCALE_PUBSUB]
     )
     await manager_agent.start()
 
