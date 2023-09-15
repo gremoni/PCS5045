@@ -220,29 +220,7 @@ class QualityControlAgent(PubSubMixin, OperationAgent):
         self.add_behaviour(self.QualityControlBehav(self.pubsub))
 
 
-class InspectionAgent(PubSubMixin, OperationAgent):
-    def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
-        super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
-
-    class WriteToScaleBehav(CyclicBehaviour):
-        async def run(self):
-            amount = 100
-            try:
-                await self.agent.pubsub.publish(PUBSUB_JID, SCALE_PUBSUB, str(amount))
-            except Exception:
-                print("erro")
-
-            print("published")
-
-            await asyncio.sleep(5)
-
-    async def setup(self):
-        behav = self.WriteToScaleBehav()
-        self.add_behaviour(behav)
-
-
-
-class PackingAgent(PubSubMixin, OperationAgent):
+class FillingAgent(PubSubMixin, OperationAgent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, verify_security: bool = False):
         super().__init__(jid, password, operating_cost, capacity, duration, verify_security)
 
@@ -285,9 +263,6 @@ class ManagerAgent(PubSubMixin, Agent):
         change_affiliation_template.set_metadata("action", "affiliation_publish")
         change_affiliation_behav = self.ChangeAffiliationPublishBehav()
         self.add_behaviour(change_affiliation_behav, change_affiliation_template)
-        
-
-# class BoxingAgent(OperationAgent):
 
 
 async def main():
