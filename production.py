@@ -19,7 +19,8 @@ PUBSUB_JID = f"pubsub.{XMPP_SERVER}"
 
 SCALE_PUBSUB = "scale"
 STOCK_PUBSUB = "stock"
-CONVEYOR_BELT_PUBSUB = "conveyor_belt"
+CONVEYOR_BELT_1_PUBSUB = "conveyor_belt_1"
+CONVEYOR_BELT_2_PUBSUB = "conveyor_belt_2"
 
 class OperationAgent(Agent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, verify_security: bool = False):
@@ -126,9 +127,7 @@ class ProductionAgent(PubSubMixin, OperationAgent):
         self.presence.approve_all = True
         self.presence.set_available()
         await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
-        await self.pubsub.subscribe(PUBSUB_JID, self.deliver_pubsub)
         self.add_behaviour(self.SetPublishAffiliationBehav())
-        # await self.pubsub.change_node_affiliations(PUBSUB_JID, self.deliver_pubsub, [(self.jid, "none")])
         self.pubsub.set_on_item_published(self.receive_callback)
         self.add_behaviour(self.ProcessStockBehav(self.pubsub))
 
@@ -150,8 +149,6 @@ class InspectionAgent(PubSubMixin, OperationAgent):
             await asyncio.sleep(5)
 
     async def setup(self):
-        # list_of_nodes = await self.pubsub.get_nodes(PUBSUB_JID)
-        # print(f"[{self.name}] List of nodes: {list_of_nodes}")
         behav = self.WriteToScaleBehav()
         self.add_behaviour(behav)
 
@@ -196,9 +193,13 @@ class ManagerAgent(PubSubMixin, Agent):
         except:
             print(f"[{self.name}] Node {STOCK_PUBSUB} already exists")
         try:
-            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_PUBSUB)
+            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_1_PUBSUB)
         except:
-            print(f"[{self.name}] Node {CONVEYOR_BELT_PUBSUB} already exists")
+            print(f"[{self.name}] Node {CONVEYOR_BELT_1_PUBSUB} already exists")
+        try:
+            await self.pubsub.create(PUBSUB_JID, CONVEYOR_BELT_2_PUBSUB)
+        except:
+            print(f"[{self.name}] Node {CONVEYOR_BELT_2_PUBSUB} already exists")
         
         change_affiliation_template = Template()
         change_affiliation_template.set_metadata("performative", "request")
@@ -207,17 +208,14 @@ class ManagerAgent(PubSubMixin, Agent):
         self.add_behaviour(change_affiliation_behav, change_affiliation_template)
         
 
-
-
-
-
 # class BoxingAgent(OperationAgent):
 
 
 async def main():
     manager_agent_user = "agente1"
-    slicing_agent_user = "agente2"
-    packing_agent_user = "agente3"
+    truck_agent_user = "agente2"
+    slicer_agent_user = "agente3"
+    fryer_agent_user = "agente4"
     password = "senhadoagente"
 
     manager_agent = ManagerAgent(
@@ -227,7 +225,7 @@ async def main():
     await manager_agent.start()
 
     truck_agent = TruckAgent(
-        jid = f"{packing_agent_user}@{XMPP_SERVER}",
+        jid = f"{truck_agent_user}@{XMPP_SERVER}",
         password = password,
         operating_cost = 10,
         deliver_period = 100,
@@ -235,18 +233,31 @@ async def main():
     )
     await truck_agent.start()
 
-    slicing_agent = ProductionAgent(
-        jid = f"{slicing_agent_user}@{XMPP_SERVER}",
+    slicer_agent = ProductionAgent(
+        jid = f"{slicer_agent_user}@{XMPP_SERVER}",
         password = password,
         capacity= 150,
         duration= 5,
         operating_cost= 12,
         manager_user= manager_agent_user,
-        activity= "SLICING",
+        activity= "SLICER",
         receive_pubsub= STOCK_PUBSUB,
-        deliver_pubsub= CONVEYOR_BELT_PUBSUB
+        deliver_pubsub= CONVEYOR_BELT_1_PUBSUB
     )
-    await slicing_agent.start()
+    await slicer_agent.start()
+
+    fryer_agent = ProductionAgent(
+        jid = f"{fryer_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 200,
+        duration= 8,
+        operating_cost= 21,
+        manager_user= manager_agent_user,
+        activity= "FRYER",
+        receive_pubsub= CONVEYOR_BELT_1_PUBSUB,
+        deliver_pubsub= CONVEYOR_BELT_2_PUBSUB
+    )
+    await fryer_agent.start()
 
     # inspection_agent = InspectionAgent(
     #     jid = f"{inspection_agent_user}@{XMPP_SERVER}",
@@ -267,8 +278,9 @@ async def main():
 
     # Pare os agentes
     await manager_agent.stop()
-    await slicing_agent.stop()
     await truck_agent.stop()
+    await slicer_agent.stop()
+    await fryer_agent.stop()
 
 if __name__ == "__main__":
     spade.run(main())
