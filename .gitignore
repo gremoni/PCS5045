@@ -1,0 +1,5 @@
+#ignore generated csv and png files
+*.csv
+*.png
+
+
