@@ -1,7 +1,6 @@
 #ignore generated csv and png files
-*.csv
-**/*.csv
-*.png
-**/*.png
+/**/*.csv
+
+/**/*.png
 
 
