@@ -22,6 +22,7 @@ STOCK_PUBSUB = "stock"
 CONVEYOR_BELT_1_PUBSUB = "conveyor_belt_1"
 CONVEYOR_BELT_2_PUBSUB = "conveyor_belt_2"
 CONVEYOR_BELT_3_PUBSUB = "conveyor_belt_3"
+CONVEYOR_BELT_4_PUBSUB = "conveyor_belt_4"
 SCALE_PUBSUB = "scale"
 
 
@@ -33,7 +34,6 @@ class OperationAgent(Agent):
         self.duration = duration
         self.manager_user = manager_user
         self.start_time = datetime.now()
-
 
 class TruckAgent(PubSubMixin, Agent):
     def __init__(self, jid: str, password: str, operating_cost, deliver_period, manager_user, verify_security: bool = False):
@@ -136,7 +136,6 @@ class ProductionAgent(PubSubMixin, OperationAgent):
         self.pubsub.set_on_item_published(self.receive_callback)
         self.add_behaviour(self.ProcessStockBehav(self.pubsub))
 
-
 class QualityControlAgent(PubSubMixin, OperationAgent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, activity : str, receive_pubsub, deliver_pubsub, return_pubsub, verify_security: bool = False):
         self.activity = activity
@@ -220,7 +219,6 @@ class QualityControlAgent(PubSubMixin, OperationAgent):
         self.pubsub.set_on_item_published(self.receive_callback)
         self.add_behaviour(self.QualityControlBehav(self.pubsub))
 
-
 class FillingAgent(PubSubMixin, OperationAgent):
     def __init__(self, jid: str, password: str, operating_cost, capacity, duration, manager_user, activity : str, batch_size, receive_pubsub, deliver_pubsub, verify_security: bool = False):
         self.activity = activity
@@ -283,6 +281,42 @@ class FillingAgent(PubSubMixin, OperationAgent):
         self.pubsub.set_on_item_published(self.receive_callback)
         self.add_behaviour(self.FillWithStockBehav(self.pubsub))
 
+class StockAgent(PubSubMixin, OperationAgent):
+    def __init__(self, jid: str, password: str, operating_cost, duration, manager_user, activity : str, receive_pubsub, verify_security: bool = False):
+        self.activity = activity
+        self.receive_pubsub = receive_pubsub
+        self.stock = 0
+        super().__init__(jid, password, operating_cost, duration, manager_user, verify_security)
+
+
+    def receive_callback(self, jid, node, item, message=None):
+        if node == self.receive_pubsub:
+            received_amount = int(item.registered_payload.data)
+            print(f"[{self.name}] Received: [{node}] -> {str(received_amount)}")
+            self.stock += received_amount
+    
+    class StoreStockBehav(CyclicBehaviour):
+        def __init__(self, pubsub : PubSubMixin.PubSubComponent):
+            self.pubsub = pubsub
+            super().__init__()
+
+        async def on_start(self):
+           print(f"[{self.agent.name}] Starting Process {self.agent.activity} Behav")
+
+        async def run(self):
+            if self.agent.stock > 0:
+                await asyncio.sleep(10)
+                print(f"[{self.agent.name}] {self.agent.activity} Final Stock = {self.agent.stock}")
+                
+            else:
+                await asyncio.sleep(5)
+
+    async def setup(self):
+        self.presence.approve_all = True
+        self.presence.set_available()
+        await self.pubsub.subscribe(PUBSUB_JID, self.receive_pubsub)
+        self.pubsub.set_on_item_published(self.receive_callback)
+        self.add_behaviour(self.StoreStockBehav(self.pubsub))
 
 class ManagerAgent(PubSubMixin, Agent):
     def __init__(self, jid: str, password: str, nodelist : List[str], verify_security: bool = False):
@@ -313,7 +347,6 @@ class ManagerAgent(PubSubMixin, Agent):
         change_affiliation_behav = self.ChangeAffiliationPublishBehav()
         self.add_behaviour(change_affiliation_behav, change_affiliation_template)
 
-
 async def main():
     manager_agent_user = "agente1"
     truck_agent_user = "agente2"
@@ -321,12 +354,16 @@ async def main():
     fryer_agent_user = "agente4"
     quality_agent_user = "agente5"
     packing_agent_user = "agente6"
+    boxing_agent_user = "agente7"
+    stock_agent_user = "agente8"
+    password = "senhadoagente"
+
     password = "senhadoagente"
 
     manager_agent = ManagerAgent(
         jid = f"{manager_agent_user}@{XMPP_SERVER}",
         password = password,
-        nodelist= [STOCK_PUBSUB, CONVEYOR_BELT_1_PUBSUB, CONVEYOR_BELT_2_PUBSUB, SCALE_PUBSUB, CONVEYOR_BELT_3_PUBSUB]
+        nodelist= [STOCK_PUBSUB, CONVEYOR_BELT_1_PUBSUB, CONVEYOR_BELT_2_PUBSUB, SCALE_PUBSUB, CONVEYOR_BELT_3_PUBSUB, CONVEYOR_BELT_4_PUBSUB]
     )
     await manager_agent.start()
 
@@ -393,6 +430,32 @@ async def main():
     )
     await packing_agent.start()
 
+    boxing_agent = FillingAgent(
+        jid = f"{boxing_agent_user}@{XMPP_SERVER}",
+        password = password,
+        capacity= 1000,
+        batch_size=1,
+        duration= 10,
+        operating_cost= 10,
+        manager_user= manager_agent_user,
+        activity= "BOXING",
+        receive_pubsub= CONVEYOR_BELT_3_PUBSUB,
+        deliver_pubsub= CONVEYOR_BELT_4_PUBSUB
+    )
+    await boxing_agent.start()
+
+    stock_agent = StockAgent(
+        jid = f"{stock_agent_user}@{XMPP_SERVER}",
+        password = password,
+        duration= 2,
+        operating_cost= 10,
+        manager_user= manager_agent_user,
+        activity= "STOCKING",
+        receive_pubsub= CONVEYOR_BELT_4_PUBSUB,
+    )
+    await stock_agent.start()
+
+
     while True:
         try:
             await asyncio.sleep(1)
@@ -405,6 +468,9 @@ async def main():
     await slicer_agent.stop()
     await fryer_agent.stop()
     await quality_agent.stop()
+    await packing_agent.stop()
+    await boxing_agent.stop()
+    await stock_agent.stop()
 
 if __name__ == "__main__":
     spade.run(main())

@@ -467,8 +467,9 @@ async def main():
     await slicer_agent.stop()
     await fryer_agent.stop()
     await quality_agent.stop()
+    await packing_agent.stop()
+    await boxing_agent.stop()
+    await stock_agent.stop()
 
 if __name__ == "__main__":
     spade.run(main())
-
-    
